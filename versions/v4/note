@@ -1,0 +1,7 @@
+v4 has changed passing into python script - now pipe due to length
+
+uninstallation working!!
+
+added pkgs.gdbm
+	- installed packages are a key with value I, removed on uninstallation
+	- pkgs dir cannot be used as that can store packages which haven't been installed / have been uninstalled

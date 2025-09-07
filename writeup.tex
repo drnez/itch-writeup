@@ -1,0 +1,127 @@
+% LTeX: language=en-GB enabled=false
+
+\documentclass[10pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath, amssymb, amsthm, physics, listings}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+
+\usepackage{listings}
+\lstset{
+  basicstyle=\ttfamily,
+  language=bash,
+  literate={\#}{{\textbf{\#}}}1
+           {\$}{{\textbf{\$}}}1,
+  columns=fullflexible,
+  keepspaces=true,
+}
+
+\usepackage[backend=biber, style=numeric, language=british,sorting=none]{biblatex}
+\addbibresource{references.bib}
+
+\usepackage[a4paper, top=1in, bottom=1in, left=1in, right=1in, heightrounded]{geometry}
+\renewcommand{\baselinestretch}{1.15}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.8em}
+
+\usepackage{xurl}
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks = true,
+  urlcolor   = blue,
+  linkcolor  = blue,
+  citecolor  = red
+}
+
+\renewcommand{\thefootnote}{\fnsymbol{footnote}}
+\setlength{\skip\footins}{1cm}
+
+\title{A lightweight package manager for Linux From Scratch systems}
+\author{Shayan Nezami}
+\date{\today}
+
+% LTeX: language=en-GB enabled=true
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\pagebreak
+
+\section{Introduction}
+
+\subsection{Background}
+
+In this section, I will set out some key terms and definitions, and explain some crucial concepts, knowledge of which form prerequisites to the rest of the paper. This is intended mostly towards readers will little knowledge about modern Linux systems.
+
+\subsubsection{Linux}
+
+\textbf{Linux}, while sometimes referred to as an operating system, like macOS and Windows, is in fact just a kernel. A \textbf{kernel} is, in simple terms, the core of an operating system, dealing with the CPU, and allocating memory to processes, among other essential operations. However, on its own, it does not provide a functional system, and is certainly not an operating system itself \cite{LinuxAndGnu}.
+
+An operating system is a collection of software that provides a usable system to an end user. Therefore, the Linux kernel is often distributed along with large amounts of other software, in the form of a Linux \textbf{distribution}. There are hundreds, if not thousands, of such distributions, examples including Ubuntu, Debian, and Arch Linux. When I refer to a \textbf{Linux system}, this is not in reference to the Linux kernel, but rather a full operating system built on top of the kernel.
+
+\subsubsection{Package managers}
+
+All computer systems need software to function, so there must be a mechanism for users to install software. At its core, \textbf{software} is simply code, that is \textbf{compiled} ("translated") to a binary format that can be executed by the processor. Installing software, in its most basic form, just consists of copying those binary files to a location where the system recognises them as executable programs.
+
+For Windows systems, most software comes with a dedicated installer (and uninstaller), which carries out this process for the application. However, this is very rarely the case on Linux systems. Software is often released as just source code, and the user is responsible for the installation.
+
+Manual installation is not particularly difficult (the code simply needs to be downloaded, compiled, tested, then copied into place), however this can get tedious when repeated for hundreds of programs. Furthermore, this makes uninstallation very difficult, as there is no way to know which files were installed by which program, and dependency management becomes near impossible.
+
+\textbf{Dependencies} are software or libraries that are required for a program to be installed. There are also \textbf{conflicts} between software, where two programs cannot be simultaneously installed on a system. Often, these occur between versions of packages. 
+
+For example, pkgA may require pkgC with version $\geq 3.0$, and pkgB may conflict with pkgC versions $> 3.5$. This means that for pkgA, pkgB, and pkgC to be simultaneously installed, pkgC must have version $v$, where $3.0 \leq v < 3.5$.
+
+Therefore, one of the defining features of a Linux distribution is the package manager they include. \textbf{Package managers} can perform all the tasks above, and more. Very often they have access to a repository of trusted and popular software, so the user can install, uninstall, and update software with just one command. For example, the following command in Arch Linux installs the web browser, Firefox:
+
+\begin{lstlisting}[language=bash]
+    # pacman -S firefox
+\end{lstlisting}
+
+Here, pacman - the package manager for Arch Linux \cite{ArchWikiPacman} - gets the \textit{package} for Firefox from its public repository, and then copies the required files into place, keeping records of what files it installed and where. This incredible ease of use is a massive draw towards Linux, and specifically existing Linux distributions.
+
+\subsubsection{Linux From Scratch}
+
+\textbf{Linux From Scratch (LFS)} is a project that provides an online, continuously updated, book with instructions on how to build a Linux system yourself, compiling and installing all software manually from source code \cite{LFSHome}, and not using any of the provided distributions - the vast majority of which come with some form of installer.
+
+\subsection{Motivation}
+
+Having recently installed a Linux From Scratch system, there is a clear gap for a package manager, which is not provided in the book. This is intentional, to bring the user's attention to compiling and installing the base software from scratch \cite{LFSPkgMgt}. However, this is not sustainable if the system is to become usable long-term.
+
+An advanced, practically usable system will at some point need complex software packages, including but certainly not limited to graphical toolchains, programming frameworks, and desktop environments. These come with many dependencies, shared libraries, and version conflicts.
+
+Even without such large packages, as a system grows, so will the number of packages (even smaller ones) it has, which feed into the same issues. There are also problems associated with upgrading software, where all files relating to the old version need to be cleanly uninstalled, and replaced with the new version, without breaking the dependencies of any other currently installed software \cite{LFSPkgMgt}. It is not sustainable to continue without a well-defined package manager at this point.
+
+This drives users into three main groups:
+\begin{enumerate}
+    \item They create a basic, personal package manager to suit their needs.
+    \item They install another distribution's package manager, such as Gentoo's Portage, or Arch's pacman \cite{GitHubLfsPacman}.
+    \item They leave their LFS system as-is after installation, never using it for any practical purpose, rather leaving it as a completed educational experience.
+\end{enumerate}
+
+All three of these come with significant, non-trivial downsides.
+
+In the first case, these package managers tend to be simple and limited in scope, and while their creation does provide a good educational experience, they are often not capable of fully supporting a growing system.
+
+Plus, programming ability is not a prerequisite to building an LFS system, so, while a minority, there are users who are capable of installing such a system, but not creating a package manager for it. While there are no formal studies on the proportion of Linux users who are not programmers, online discussions seem to suggest the existence of a notable minority \cite{RedditLinuxNonProg}.
+
+The second case has the benefit of providing a highly reliable, popular, and documented package manager, often with all the user's needed features and more. However, there are two key downsides here.
+
+Firstly, this in effect turns the user's LFS system into a version of the distribution providing the package manager, and goes against much of the LFS philosophy, which is about creating and maintaining your own system, with full control over all software installed. The sheer complexity of these package managers removes such control from the users, and while it does often produce a working system, the user has in effect just followed a very long path to installing that distribution.
+
+Secondly, and perhaps most crucially, these package managers have been specifically designed for their own distribution, and an LFS system is by definition different. These systems may handle certain cases differently, or have different directory structures, among other subtle differences. Since the package manager has not been made for, and is not commonly used with, LFS systems, there tends to be a lack of support, with a very small user base that can help with any issues that will eventually arise.
+
+For these reasons, I came to the decision to write a package manager, dedicated to Linux From Scratch systems, addressing all the shortfalls identified.
+
+\section{Design}
+
+\subsection{Non-technical aims}
+
+\subsection{Technical structure}
+
+\section{Programming the package manager}
+
+\printbibliography
+
+\end{document}
