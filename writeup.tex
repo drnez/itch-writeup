@@ -61,7 +61,7 @@ In this section, I will set out some key terms and definitions, and explain some
 
 An operating system is a collection of software that provides a usable system to an end user. Therefore, the Linux kernel is often distributed along with large amounts of other software, in the form of a Linux \textbf{distribution}. There are hundreds, if not thousands, of such distributions, examples including Ubuntu, Debian, and Arch Linux. When I refer to a \textbf{Linux system}, this is not in reference to the Linux kernel, but rather a full operating system built on top of the kernel.
 
-\subsubsection{Package managers}
+\subsubsection{Package managers} \label{PackageManagerS}
 
 All computer systems need software to function, so there must be a mechanism for users to install software. At its core, \textbf{software} is simply code, that is \textbf{compiled} ("translated") to a binary format that can be executed by the processor. Installing software, in its most basic form, just consists of copying those binary files to a location where the system recognises them as executable programs.
 
@@ -125,17 +125,19 @@ I will start by defining some fundamental aims of the package manager that will 
     \item The compilation ("building") of software should be left to the user, meaning precompiled binaries should never be distributed. Linux From Scratch is based on the principles of compiling ones own software, and this is a key requirement if a package manager is to be used by LFS users. \label{NoPrecompiled}
     \item Users should be able to patch and modify source code as they desire prior to installation, with the package manager placing no restriction on this.
     \item The compiled software should be stored as \textit{packages} of some form for future use, so that the user does not have to rebuild software to reinstall it. Note that this does not defy Aim \ref{NoPrecompiled}, since these packages will have been compiled by the user themselves, configured as they desire, rather than externally compiled, then distributed.
-    \item There should be no central server the package manager needs to interact with to function. It should be able to run wholly locally, with no limitations.
+    \item There should be no central server the package manager needs to interact with to function. It should be able to run wholly locally, with no limitations. \label{NoServer}
     \item It must provide a method for full and clean uninstallation, removing all traces of the software, while not affecting any other programs.
     \item Dependencies and conflicts must be tracked and managed appropriately, as a key purpose of this project.
     \item It must not simply be a derivative of an existing package manager - there must be something unique about it, or a non-trivial reason to use it instead of another existing package manager. This has been partially addressed in Section \ref{MotivationSS}, but it should be continuously thought about.
 \end{enumerate}
 
-I chose the name \textit{Itch} for this package manager to reflect the importance of Aim \ref{TargetLFS}, since it is based on Linux From \textit{Scratch}.
+I chose the name \textit{Itch} for this package manager to reflect the importance of Aim \ref{TargetLFS}, since it is being built for Linux From \textit{Scratch}.
 
-\subsection{Existing methods}
+\subsection{Package maintenance}
 
-Through my research of existing package managers, I have identified 
+Through my research of existing package managers, I have identified three promising methods employed by package managers to install and subsequently uninstall packages. These generally all provide some method to track what files are installed, and where, so that they can be removed on uninstallation.
+
+These are generally independent of the method for dependency resolution, which will be discussed in Section \ref{DependencySS}.
 
 \subsubsection{Modifying destdir}
 
@@ -143,10 +145,36 @@ Through my research of existing package managers, I have identified
 
 \subsubsection{Functional package managers}
 
-\subsection{Technical structure}
+\subsubsection{Conclusion}
+
+... so I have chosen to use the destdir method, where ...
+
+\subsection{Dependency resolution} \label{DependencySS}
+
+Now, I must consider the problem of dependency resolution. Each package can depend on, or conflict with, certain other packages, meaning certain packages must be installed with each other, while other packages cannot coexist on a system. To make this more complex, these are most often bounded by versions. See Section \ref{PackageManagerS} for a deeper explanation.
+
+This means that package managers must come with a method to \textit{resolve} dependencies, meaning to find what packages - and in what versions - need to be installed on the system for a new package to be added.
+
+Dependency resolution is an NP-complete problem \cite{DependenciesFormal}, meaning in practical terms that it cannot reliably be solved "quickly" (there is no known polynomial time solution). Therefore, shortcuts and optimisations are often taking to make it tractable.
+
+\subsubsection{Maintaining a curated repository}
+
+The vast majority of popular Linux distributions employ this method, where the maintainers of the distribution maintain an online repository, containing one version of each package available, ensuring that those versions all work together. This greatly simplifies the problem of dependency resolution, since package versions are no longer a concern.
+
+Another reason this method is very commonly used in more mainstream distributions is that the package set becomes universal among systems of the same version, making problems easier to diagnose and debug.
+
+Moreover, this fits very well with the philosophies of some distributions. For example, Arch Linux operates on a rolling-release model, always using the very newest software, so this curated repository only contains the newest usable builds \cite{ArchMain}. On the opposite end of the spectrum, Debian focuses on stability, so a curated selection of tested, mature packages enables the creation of very robust systems \cite{DebianUsability}.
+
+However, this does not at all fit within the Linux From Scratch philosophy, which is about users creating their own system as they please. \textit{Itch} is simply intended to be a tool to help users with this, and therefore it should not limit the range of software users can install, or curate package repositories based on release version. This choice should be fully in the hands of the user.
+
+Furthermore, since this relies on an online repository of curated software, it violates Aim \ref{NoServer}.
+
+\subsubsection{Holding a package database}
 
 \section{Programming the package manager}
 
+
+\pagebreak
 \printbibliography
 
 \end{document}
