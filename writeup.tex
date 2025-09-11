@@ -2,7 +2,7 @@
 
 \documentclass[10pt]{article}
 \usepackage[utf8]{inputenc}
-\usepackage{amsmath, amssymb, amsthm, physics, listings}
+\usepackage{amsmath, amssymb, amsthm, physics, listings, centernot}
 \usepackage[T1]{fontenc}
 \usepackage{lmodern}
 \usepackage{microtype}
@@ -15,6 +15,7 @@
            {\$}{{\textbf{\$}}}1,
   columns=fullflexible,
   keepspaces=true,
+  showstringspaces=false
 }
 
 \usepackage[backend=biber, style=numeric, language=british,sorting=none]{biblatex}
@@ -28,10 +29,10 @@
 \usepackage{xurl}
 \usepackage{hyperref}
 \hypersetup{
-  colorlinks = true,
-  urlcolor   = blue,
-  linkcolor  = blue,
-  citecolor  = red
+    colorlinks = true,
+    urlcolor   = blue,
+    linkcolor  = blue,
+    citecolor  = red
 }
 
 \renewcommand{\thefootnote}{\fnsymbol{footnote}}
@@ -123,8 +124,8 @@ I will start by defining some fundamental aims of the package manager that will 
 \begin{enumerate}
     \item It must be targetted towards LFS systems. While it should ideally be usable on most Linux systems, decisions should be guided by what is needed on an LFS system, and what the LFS user base would prefer. \label{TargetLFS}
     \item The compilation ("building") of software should be left to the user, meaning precompiled binaries should never be distributed. Linux From Scratch is based on the principles of compiling ones own software, and this is a key requirement if a package manager is to be used by LFS users. \label{NoPrecompiled}
-    \item Users should be able to patch and modify source code as they desire prior to installation, with the package manager placing no restriction on this.
-    \item The compiled software should be stored as \textit{packages} of some form for future use, so that the user does not have to rebuild software to reinstall it. Note that this does not defy Aim \ref{NoPrecompiled}, since these packages will have been compiled by the user themselves, configured as they desire, rather than externally compiled, then distributed.
+    \item Users should be able to patch and modify source code as they desire prior to installation, with the package manager placing no restriction on this. \label{AllowPatching}
+    \item The compiled software should be stored as \textit{packages} of some form for future use, so that the user does not have to rebuild software to reinstall it. Note that this does not defy Aim \ref{NoPrecompiled}, since these packages will have been compiled by the user themselves, configured as they desire, rather than externally compiled, then distributed. \label{StorePkgs}
     \item There should be no central server the package manager needs to interact with to function. It should be able to run wholly locally, with no limitations. \label{NoServer}
     \item It must provide a method for full and clean uninstallation, removing all traces of the software, while not affecting any other programs.
     \item Dependencies and conflicts must be tracked and managed appropriately, as a key purpose of this project.
@@ -139,15 +140,33 @@ Through my research of existing package managers, I have identified three promis
 
 These are generally independent of the method for dependency resolution, which will be discussed in Section \ref{DependencySS}.
 
-\subsubsection{Modifying destdir}
+\subsubsection{Modifying destdir} \label{DestdirSSS}
+
+This method is used by many package managers made for commerical Linux distributions, such as pacman \cite{ArchWikiPacman}. This is a very simple method, consisting of configuring the package to be installed in the correct, final, location, but modifying the DESTDIR environment variable upon installation, so that the package is instead placed in a "fake" location where it will not function properly \cite{FakerootLFS}.
+
+From there, an archiving utility, often tar, is used to create an archive of the files in this fake directory. This archive is then unpacked in the correct installation location, installing the software as normal. However, now the archive still exits, and within it, it holds a copy of every file that was installed, and where they were placed. This makes uninstallation very simple, as these files are simply iterated over and deleted \cite{qpkg}.
 
 \subsubsection{Using unionfs}
 
+This is a unique approach to package management, and follows the same basic principles as the fake installation location method, but differs greatly in implementation \cite{UnionfsLFS}.
+
+The current file system is accessed read only, and a new, empty, file system is created, which can be written to. A union between these two is made using the unionfs utility. Therefore, when the package is installed to the union, the union will contain the new state of the system, with the new package installed, and the previously empty file system will contain all of the installed files.
+
+These can then be stored in some format, providing all of the files installed by the package for easy uninstallation. Once the user is happy, the union file system can be copied to the main file system (that was previously accessed read only). This allows easy rollbacks in case of an error mid-install.
+
+The main benefit this has over the DESTDIR method is that files are \textbf{forced} to be installed in the empty file system, while a poorly packaged program may ignore the DESTDIR environment variable. However, this is rare, and seems to be more of a theoretical advantage rather than a practical one.
+
 \subsubsection{Functional package managers}
+
+Functional package managers have been gaining popularity in recent years, and they are based on the principle that all configuration and instructions given to packages must be stored in one central file.
+
+This file is then hashed, and that hash corresponds to the unique state of the system \cite{TryNix}. This is very useful for creating reproducible builds, and makes debugging much simpler since a configuration can be recreated on another device with ease.
+
+While this is a fascinating concept, I made the decision not to research it much further, since these package managers do not fit within my fundamental aims for \textit{Itch}, which is to complement a Linux From Scratch system, simplifying tasks. This would be introducing a whole new paradigm, and users would be much better served installing an existing, developed, functional package manager if they want a system like this, such as Nix.
 
 \subsubsection{Conclusion}
 
-... so I have chosen to use the destdir method, where ...
+Although the unionfs method was fascinating from a technical point of view, I decided to use the DESTDIR method over unionfs. The main reasons were that it is much better documented in case any problems arise, it is much simpler to understand and debug, particularly for users of the program who should ideally understand how it works in full, and the unionfs method did not provide any significant advantages over the DESTDIR method, despite the added complexity.
 
 \subsection{Dependency resolution} \label{DependencySS}
 
@@ -171,8 +190,430 @@ Furthermore, since this relies on an online repository of curated software, it v
 
 \subsubsection{Holding a package database}
 
-\section{Programming the package manager}
+Another method consists of holding a database with the required dependency information for a number of packages (available in many versions). This differs from the curated repository method, in which one version of each package is stored which will work with each other. 
 
+This allows the user to choose what packages they install, and with what version. Gentoo operates a similar system, using an \textit{ebuild} repository, which contains \textit{ebuild} files with the metadata of packages \cite{GentooEbuild} - most of which have multiple available versions.
+
+However, it does require than an online database to be maintained, violating Aim \ref{NoServer}. While this can be mitigated, by allowing users to build their own database (keeping the database in a human-readable format), and by allowing the file to be downloaded once and repeatedly used, meaning the package manager does not need to interact with an online sever every time it runs, it still does violate the spirit of the aim, preventing the package manager being from functioning wholly locally.
+
+\subsubsection{Using placeholders}
+
+The problem with not holding any form of package database is that the system has no information about packages that could satisfy dependencies. Consider a system (using the notation $p_x-y$ to refer to package $x$, version $y$) where, the installed packages are $\{p_a-3.0, \; p_b-1.2\}$, and $p_c-2.0$ is to be installed. However, $p_c-2.0$ requires $p_a-v>3.5$ and $p_d-v\le1.0$. Now, the system does not know about what packages exist within those ranges, and whether they depend on any other packages, or conflict with any existing packages. This makes dependency management very difficult. 
+
+In this case, placeholders can be used, meaning the resolver would simply output the version ranges that a satisfying package must fit into. However, this is a one-way relationship. Where the set $S$ is a satisfying set of packages, and $S_p$ output of the program involving placeholders,
+\begin{equation}
+    S \implies S_p, \quad S_p \centernot\implies S.
+\end{equation}
+This is because the dependency information of those packages in the range is not known, nor is the actual package versions within the range. 
+
+This does not result in a useful package manager. For large packages with hundreds of (often nested) dependencies, it creates a very arduous path for the user.
+
+Imagine a package $p_e-4.2.1$ is to be installed, and the package manager identifies that it requires $p_e-2.0.0<v\le3.2.0$. Trying to install that, the package manager can only then inform the user that it requires $p_f$. However, the version of $p_f$ the user chose to install ends up conflicting with $p_b-2.0$, which is installed on the system. The system will have no method to detect these in advance, while a system with a package database would instantly output a satisfying arrangement, if one is available.
+
+Very often, this method will be more time-consuming and frustrating than handling the dependencies yourself, or finding a satisfying arrangement online.
+
+\subsubsection{Conclusion}
+
+This is a tough situation, where either Aim \ref{NoServer} must be (at least partially) defied, or the dependency resolver produced will not be practically usable.
+
+I can immediately remove the first option, of maintaining a curated repository, since that goes too far against the purpose of a Linux From Scratch package manager (Aim \ref{TargetLFS}), and in effect creates a new distribution. The third option of using placeholders is also not reasonable, since it creates a borderline unusable program. 
+
+Therefore, I have no option but to hold a package database, containing just the dependency information for packages. This will be in a form that can be downloaded once, and extended by users. This database can start with data scraped from other package manager databases, and extended with user contributions. 
+
+However, since this does go against the concept I originally had for the package manager, I have decided it would be best to split the package \textit{installer} (the installation and uninstallation components) and the dependency resolver into separate projects. They will still work with each other as a unified package management system, but they should also be capable of working independently, and in conjunction with other package management tools. 
+
+Besides the obvious benefit of the package installer component not relying on an external database, this also better follows the Unix philosophy, where each program should complete just one task well \cite{UnixPhilosophy}. It is also more useful for users who only require one half of the system, and use a different method for either dependency resolution or package installation and removal. 
+
+\section{Programming the package installer}
+
+\subsection{Basic installation}
+
+The principles of building an installing software can be boiled down to the following steps: (patch), configure, build, (test), install. Since \textit{Itch} is focused on ensuring users still compiling their own code (Aim \ref{NoPrecompiled}), and allowing patching as desired (Aim \ref{AllowPatching}), it will not interfere with any of these steps until \textit{install}.
+
+To make this clear to the user, I created procedures for \textit{configure}, and \textit{install}:
+
+\begin{lstlisting}[language=bash]
+    install_prefix="$HOME/prog/school/epq/dest/"
+
+    configure() {
+        echo "configure as normal, ensuring the following is added:"
+        echo "    --prefix=$install_prefix"
+    }
+
+    build() {
+        echo "make as normal"
+    }
+\end{lstlisting}
+
+This also reminds the user to specify the install prefix - the location the software will be once fully installed - to the configure command. It is currently set to a location within my home directory to allow for testing without risk of damaging my system, but this will be changed to /usr (the default prefix for LFS systems), with a configuration file allowing it to be changed, once the development is complete.
+
+The code below performs the installation, with a method similar to that described in Section \ref{DestdirSSS}.
+
+\begin{lstlisting}[language=bash]
+    temp_dir="/tmp/itch/build"
+
+    install() {
+        rm -rf "$temp_dir" # in case not properly cleaned before
+        mkdir -p $temp_dir
+
+        make DESTDIR="$temp_dir" install # install in temp dir
+
+        findname
+
+        sudo mkdir -p "$pkgpath"
+
+        sudo tar czf "$itchpkgpath" -C "$temp_dir$install_prefix" .
+
+        installpkg
+    }
+
+    installpkg() { # existing tarball in pkgpath
+        cd $install_prefix
+
+        # finds existing files that will be overwritten
+        for file in $(tar tzf "$itchpkgpath" | grep -v '/$'); do
+            if [ -e "$file" ]; then
+                printf "Overwrites '%s'\n" "${file#./}"
+            fi
+        done
+
+        read -p "Proceed? (yes/NO): " confirmation
+
+        if [ "$confirmation" = "yes" ] || [ "$confirmation" = "y" ]; then
+            tar xf "$itchpkgpath"
+        else
+            echo "Aborted!"
+        fi
+
+        rm -rf "$temp_dir"
+    }
+\end{lstlisting}
+
+The following process is followed by the code above to install packages:
+\begin{enumerate}
+    \item A temporary installation directory is created in /tmp/itch/build, and the package is installed there first. This directory is placed in /tmp as it is "made available for programs that require temporary files" \cite{FHS}.
+    \item The tar archive \cite{GnuTar} (a gzipped tarball) of the files to be installed is stored in /var/lib/itch/pkgs/\{package name\}/\{package name\}.itchpkg. This both allows the package to be reinstalled without recompilation (Aim \ref{StorePkgs}), and holds the data about files created during installation. It is located in /var as "/var contains variable data files" \cite{FHS}, and these files are updated while the program runs.
+    \item The files to be installed are compared with any files already installed, finding the files that will be overwritten, so the user can cancel the installation if that would be problematic. The for loop for this was heavily inspired by qpkg's \cite{qpkg} verify function \cite{qpkgCode}.
+    \item The tarball is unpacked in the final installation directory, completing the installation, and the temporary build directory is removed.
+\end{enumerate}
+
+The following procedure determines the name of the package being installed, by either using the name of the current directory, or the parent directory if currently inside a build directory. Since this is not fully robust, the user has the chance to override its output.
+
+\begin{lstlisting}[language=bash]
+    findname() {
+        pkgname=$(basename "$(pwd)")
+
+        # tries to find package name (either current dir or parent if in build dir)
+        if [ "$pkgname" = "build" ]; then
+            pkgname=$(basename "$(dirname "$(pwd)")")
+        fi
+
+        echo "Enter package name (blank for [$pkgname]):"
+        read input
+
+        if [ "$input" != "" ]; then
+            pkgname="$input"
+        fi
+    }
+\end{lstlisting}
+
+A switch statement calls the required procedure based on the flags the user passes into the program.
+
+\begin{lstlisting}[language=bash]
+    case "$1" in
+        "-c")
+            configure ;;
+        "-b")
+            build ;;
+        "-i")
+            if [ -z "$2" ]; then
+                install
+            else
+                getname "$@"
+                installpkg
+            fi ;;
+        *)
+            echo "Error!"
+            ;;
+    esac
+\end{lstlisting}
+
+The installpkg procedure is called directory if the name of a package that has already been compiled by the user is specified, skipping the building stage. In this case, the getname procedure is called, setting variable based on the name of the package provided, and ensuring it is valid.
+
+\begin{lstlisting}[language=bash]
+    getname() {
+        pkgname="$2"
+
+        pkgpath="/var/lib/itch/pkgs/$pkgname"
+        itchpkgpath="$pkgpath/$pkgname.itchpkg"
+
+        if [ ! -f "$itchpkgpath" ]; then
+            echo "Error!"
+            exit
+        fi
+    }
+\end{lstlisting}
+
+\subsection{Tracking file ownership}
+
+Currently, the uninstall method will just consist of deleting all the files that were installed by a package. This brings about a problem: some files are provided by multiple packages. These should not be deleted upon the removal of one package that provided them if another package that also provided them is still installed.
+
+There is also a second, though less significant, problem in the removal of directories. These should only be removed if they will be empty once all files to be deleted are removed, to prevent another program's files residing in the same directory being deleted. The approach qpkg takes is simply not deleting directories \cite{qpkg}, and while this still works, it is not very elegant.
+
+Both problems can be solved by tracking which packages provide each file.
+
+I chose to use gdbm \cite{gdbmManual} for the database holding this information. It provides a quick, lightweight, NoSQL method to retrieve data, and is already installed in a default LFS system \cite{gdbmLFS}.
+
+The pkgfiles array is populated inside install, and this updateshared procedure is called just prior to final installation in the final directory.
+
+\begin{lstlisting}[language=bash]
+    updateshared() {
+        shareddir="/var/lib/itch/shared"
+        dbdir="$shareddir/files.gdbm"
+
+        # create dir and file if not already existing
+        sudo mkdir -p "$shareddir"
+        sudo touch "$dbdir"
+
+        for file in ${pkgfiles[@]}; do
+            gdbmout=$(echo "fetch $file" | sudo gdbmtool "$dbdir" 2>/dev/null)
+
+            echo "store $file \"$gdbmout $pkgname\"" | sudo gdbmtool "$dbdir"
+        done
+    }
+\end{lstlisting}
+
+This uses gdbmtool (a command line interface to gdbm) to add the name of the installed package onto the list of packages that provide a certain file. This table maps each installed file (the key) to this list (the value).
+
+The database is located at /var/lib/itch/shared/files.gdbm. It is in a "shared" directory to show that this file is used by all packages.
+
+However, upon testing, it would take minutes for this procedure to run for larger packages. This was since every time gdbmtool is called (twice per file), the database is opened and closed, and while the actual reading and writing is very quick, this overhead greatly slowed down the process.
+
+Therefore, I replaced this procedure with a short python script - updatedb.py - performing the same task.
+
+\begin{lstlisting}[language=python]
+    import sys
+    import dbm.gnu
+
+    dbdir = sys.argv[1]
+    pkgname = sys.argv[2]
+
+    db = dbm.gnu.open(dbdir, 'c');
+
+    for i in range(3, len(sys.argv)):
+        file = sys.argv[i]
+
+        gdbmout = db.get(file)
+
+        if gdbmout is not None:
+            pkgs = gdbmout.decode().split(' ')
+        else:
+            pkgs = []
+
+        # don't add pkgname if already existing - eg for reinstallations
+        if pkgname not in pkgs:
+            pkgs.append(pkgname)
+
+        db[file] = " ".join(pkgs)
+
+    db.close()
+\end{lstlisting}
+
+Python - unlike bash, which is only used for scripting - provides a well-documented interface to gdbm \cite{gdbmPython} such that the database can be opened once at the start of the program, and only closed at the end. This greatly reduced the time taken to update the database to milliseconds, from minutes.
+
+This script is executed from inside the main bash file as follows:
+
+\begin{lstlisting}[language=bash]
+    printf "%s" "${pkgfiles[@]}"
+        | sudo python "$pythonupdatedir" "$filedbdir" "$pkgname"
+\end{lstlisting}
+
+The location of the database and package name are passed to it as command line arguments, while the package files are piped into it, as otherwise the number of files would often exceed the maximum length of command line arguments.
+
+\subsection{Uninstalling packages}
+
+The only reason such lengths have been taken to install packages, rather than simply issuing the installation command
+\begin{lstlisting}[language=bash]
+    # sudo make install
+\end{lstlisting}
+is to ensure that these packages can be cleanly uninstalled, leaving no traces behind that could cause problems for other packages, or newer versions of the same package.
+
+Before attempting to uninstall a package, it must first be verified that it is installed in the first place. The contents of /var/lib/itch/pkgs/ cannot be used for this, as they simply contain all archives that have been created. One may have been created but not installed, or installed but later uninstalled. The .itchpkg archives persist here intentionally, to allow easier installation again, but this does mean another method for tracking installed \textit{packages} (not files) is needed.
+
+I decided to also use gdbm for this, linking each package to its installed version.
+
+\begin{lstlisting}[language=bash]
+    echo "store $pkgname_name $pkgname_version"
+        | sudo gdbmtool "$pkgdbdir" 2>/dev/null
+\end{lstlisting}
+
+This does not require a separate python script, as the database is only accessed once per package installed.
+
+The database is stored in /var/lib/itch/shared/pkgs.gdbm, again because this is shared between all packages.
+
+\begin{lstlisting}[language=bash]
+    shareddir="/var/lib/itch/shared"
+    pkgdbdir="$shareddir/pkgs.gdbm"
+\end{lstlisting}
+
+Arch Linux's pacman stores this data in the form of a tarball containing each package as a directory \cite{ArchWikiPacman}, however I chose to use this gdbm database instead since the hashing provided, and not needing to unpack the archive every time, makes it quicker to check whether a package is installed.
+
+Having built this database, I then wrote the uninstallation procedure.
+
+\begin{lstlisting}[language=bash]
+    uninstall() {
+        gdbmout="$(echo "fetch $pkgname" | sudo gdbmtool "$pkgdbdir" 2>/dev/null)"
+
+        if [ "$gdbmout" = "" ]; then
+            echo "Error! Package not installed to begin with!"
+            exit
+        fi
+
+        pkgfiles="$(tar tzf "$itchpkgpath")"
+
+        toremove="$(printf "%s" "${pkgfiles[@]}"
+            | sudo python
+                "$pythonuninstalldir" "$filedbdir" "$pkgname" "$itchpkgpath")"
+
+        echo "$toremove"
+
+        IFS=$'\n' read -rd '' -a toremovearr <<< "$toremove"
+
+        for file in "${toremovearr[@]}"; do
+            echo "$file"
+            sudo rm -rf "$installprefix/$file"
+        done
+
+        pkgname_name="${pkgname%%-[0-9]*}"
+        echo "delete $pkgname_name" | sudo gdbmtool "$pkgdbdir" 2>/dev/null
+    }
+\end{lstlisting}
+
+After confirming that the package is installed, the package's files are taken from the .itchpkg archive made in /var/lib/itch/pkgs/\{pakage name\} during installation. At this point, the python script uninstalldb.py is executed.
+
+\begin{lstlisting}[language=python]
+    import sys
+    import dbm.gnu
+
+    dbdir = sys.argv[1]
+    pkgname = sys.argv[2]
+    itchpkgpath = sys.argv[3]
+
+    pkgfiles = [line.strip() for line in sys.stdin]
+
+    db = dbm.gnu.open(dbdir, 'c');
+
+    for file in pkgfiles:
+        gdbmout = db.get(file)
+
+        if gdbmout is not None:
+            pkgs = gdbmout.decode().split(' ')
+        else: # must have been an error
+            pkgs = []
+            continue
+
+        pkgs.remove(pkgname)
+
+        if len(pkgs) == 0:
+            print(file)
+            del db[file]
+        else:
+            db[file] = " ".join(pkgs)
+
+    db.close()
+\end{lstlisting}
+
+This opens the files.gdbm database, and removes all occurrences of package being uninstalled. It also prints any files that were only provided by this package, so they can be captured by the main bash procedure, and deletes those entries from the database.
+
+These files that are returned are then all deleted, and the package is removed from the pkgs.gdbm database, as it is no longer installed.
+
+\section{Programming the dependency resolver}
+
+\subsection{Storing metadata} \label{ResolverMetadataSS}
+
+As previously established, there needs to be a database with multiple versions of each available package, storing dependency information. Here, I will specify the format in which this is stored.
+
+Firstly, there will be a gdbm database linking each package name with its available versions (/var/lib/itch-resolver/global.gdbm).
+
+The data for each of these package and version is stored in the general directory: /var/lib/itch-resolver/pkgs/\{package name\}/\{package version\}. This directory will contain three files: conflicts.itch, depends.itch, and provides.itch.
+
+Together, these three files contain all the required information to resolve dependecies and output a combination of packages that all will work together.
+
+\subsubsection{conflicts.itch}
+
+Each line of this file is in the format:
+
+\{conflicting package name\} \{lowest conflicting version\} \{highest conflicting version\}.
+
+The lowest version can be 0, and highest can be left out if not applicable.
+
+These are the packages and versions that cannot be installed together with this package.
+
+\subsubsection{depends.itch}
+
+This has a very similar format. Each package that is required for the target package has a line in the format:
+
+\{required package name\} \{lowest version required\} \{highest acceptable version\}.
+
+\subsubsection{provides.itch}
+
+This stores programs that are provided by a certain package, and may be required by other packages. This file has the even simpler format:
+
+\{provided program name\} \{provided program version\}.
+
+\subsection{Defining the SAT problem}
+
+A dependency resolution problem is expressed as a set of constraints: one package requires another to run, two package versions cannot co-exist, a certain package must be newer than a given version to support a specific version of another package.
+
+These can be encoded as a boolean satisfiability (SAT) problem. This is clear, since both the SAT problem, and dependency resolution, are NP-complete, meaning they reduce to each other in at most polynomial time \cite{DependenciesFormal}. This is useful, since there exists programs called SAT solvers, which are highly optimised to compute large SAT problems.
+
+Therefore, by encoding all the dependency constraints into conjunctive normal form (CNF - the format accepted by SAT solvers), the problem can be given to a SAT solver to find a satisfying arrangement of packages.
+
+I will pass this generated CNF to MiniSAT \cite{MiniSATPaper}, a popular, powerful but lightweight SAT solver with a well-documented shell interface \cite{MiniSATGuide}.
+
+The following rules will be encoded \cite{DepsToCNF}:
+
+\begin{enumerate}
+    \item A package's dependencies must be met, or the package not installed.
+    \item None of a package's conflicts should be installed, or the package not installed.
+    \item Only one version of any package can be installed.
+    \item Each package already installed on the system must remain installed in some version (this does not have to be the current one).
+    \item The package being installed should be installed with the given version.
+\end{enumerate}
+
+\subsection{Generating a CNF file}
+
+MiniSAT takes input of a CNF file in DIMACS format. This means that each line contains a list of integers (which correspond to boolean variables) in a disjunction, while the lines in the file are in conjunction together. A negative integer encodes the negation of a variable. In other words, at least one boolean variable in each line must be true for an arrangement to be satisfying. All lines must also end with an 0, but this is not a problem variable.
+
+This python program, make-cnf.py, takes input of the files defined in Section \ref{ResolverMetadataSS}, and ouputs a CNF file that can be passed to MiniSAT.
+
+\lstinputlisting[language=python]{final/resolver/make-cnf.py}
+
+
+\appendix
+
+\section{Full program}
+
+\subsection{Package installer}
+
+\subsubsection{main.sh}
+\lstinputlisting[language=bash]{final/installer/main.sh}
+
+\subsubsection{updatedb.py}
+\lstinputlisting[language=python]{final/installer/updatedb.py}
+
+\subsubsection{uninstalldb.py}
+\lstinputlisting[language=python]{final/installer/uninstalldb.py}
+
+\section{Remaining tasks}
+
+\begin{enumerate}
+    \item Explain minor implementation choices in greater depth, include a directory tree for files used in the project.
+    \item Expand introduction to cover more about dependencies, SAT, CNF, bash scripting.
+    \item Fully finish and test the dependency resolver (i.e. create the wrapper program passing the CNF into miniSAT), ensuring compatibility with the package installer, and document it in greater depth.
+    \item Finalise the programs and prepare them for distribution, including allowing certain predefined variables to be edited in a configuration file.
+    \item Potentially add extra features such as incorporation of previously installed packages.
+\end{enumerate}
 
 \pagebreak
 \printbibliography
