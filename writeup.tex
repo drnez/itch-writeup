@@ -7,15 +7,35 @@
 \usepackage{lmodern}
 \usepackage{microtype}
 
-\usepackage{listings}
+\usepackage{listings, xcolor, graphicx}
+
+\definecolor{bluekeywords}{rgb}{0,0,1}
+\definecolor{greencomments}{rgb}{0,0.5,0}
+\definecolor{redstrings}{rgb}{0.64,0.08,0.08}
+\definecolor{xmlcomments}{rgb}{0.5,0.5,0.5}
+\definecolor{types}{rgb}{0.17,0.57,0.68}
+
 \lstset{
-  basicstyle=\ttfamily,
-  language=bash,
-  literate={\#}{{\textbf{\#}}}1
-           {\$}{{\textbf{\$}}}1,
-  columns=fullflexible,
-  keepspaces=true,
-  showstringspaces=false
+    basicstyle=\ttfamily,
+    language=bash,
+    backgroundcolor={\color{gray!20}},
+    captionpos=b,
+    numbers=left,
+    numberstyle=\tiny,
+    frame=lines,
+    showspaces=false,
+    showtabs=false,
+    breaklines=true,
+    showstringspaces=false,
+    breakatwhitespace=true,
+    escapeinside={(*@}{@*)},
+    commentstyle=\color{greencomments},
+    keywordstyle=\color{bluekeywords},
+    stringstyle=\color{redstrings},
+    basicstyle=\ttfamily\small,
+    columns=fullflexible,
+    keepspaces=true,
+    showstringspaces=false
 }
 
 \usepackage[backend=biber, style=numeric, language=british,sorting=none]{biblatex}
@@ -54,7 +74,7 @@
 
 \subsection{Background}
 
-In this section, I will set out some key terms and definitions, and explain some crucial concepts, knowledge of which form prerequisites to the rest of the paper. This is intended mostly towards readers will little knowledge about modern Linux systems.
+In this section, I will set out some key terms and definitions, and explain some crucial concepts, knowledge of which form prerequisites to the rest of the write-up. This is intended mostly towards readers will little knowledge about modern Linux systems.
 
 \subsubsection{Linux}
 
@@ -76,7 +96,9 @@ For example, where $p$ denotes a package, $p_a$ may require $p_c$ with version $
 
 Therefore, one of the defining features of a Linux distribution is the package manager they include. \textbf{Package managers} can perform all the tasks above, and more. Very often they have access to a repository of trusted and popular software, so the user can install, uninstall, and update software with just one command. For example, the following command in Arch Linux installs the web browser, Firefox:
 
-\begin{lstlisting}[language=bash]
+\begin{lstlisting}[language=bash,     literate={\#}{{\textbf{\#}}}1
+           {\$}{{\textbf{\$}}}1,
+]
     # pacman -S firefox
 \end{lstlisting}
 
@@ -338,7 +360,7 @@ A switch statement calls the required procedure based on the flags the user pass
     esac
 \end{lstlisting}
 
-The installpkg procedure is called directory if the name of a package that has already been compiled by the user is specified, skipping the building stage. In this case, the getname procedure is called, setting variable based on the name of the package provided, and ensuring it is valid.
+The installpkg procedure is called directly if the name of a package that has already been compiled by the user is specified, skipping the building stage. In this case, the getname procedure is called, setting variable based on the name of the package provided, and ensuring it is valid.
 
 \begin{lstlisting}[language=bash]
     getname() {
@@ -433,7 +455,9 @@ The location of the database and package name are passed to it as command line a
 \subsection{Uninstalling packages}
 
 The only reason such lengths have been taken to install packages, rather than simply issuing the installation command
-\begin{lstlisting}[language=bash]
+\begin{lstlisting}[language=bash,     literate={\#}{{\textbf{\#}}}1
+           {\$}{{\textbf{\$}}}1,
+]
     # sudo make install
 \end{lstlisting}
 is to ensure that these packages can be cleanly uninstalled, leaving no traces behind that could cause problems for other packages, or newer versions of the same package.
@@ -537,7 +561,7 @@ Firstly, there will be a gdbm database linking each package name with its availa
 
 The data for each of these package and version is stored in the general directory: /var/lib/itch-resolver/pkgs/\{package name\}/\{package version\}. This directory will contain three files: conflicts.itch, depends.itch, and provides.itch.
 
-Together, these three files contain all the required information to resolve dependecies and output a combination of packages that all will work together.
+Together, these three files contain all the required information to resolve dependencies and output a combination of packages that all will work together. This format is easy to parse in a program, and as compact as possible, minimising the storage size needed while holding all of the necessary information.
 
 \subsubsection{conflicts.itch}
 
@@ -581,39 +605,296 @@ The following rules will be encoded \cite{DepsToCNF}:
     \item The package being installed should be installed with the given version.
 \end{enumerate}
 
+\subsubsection{The format of DIMACS CNF}
+
+CNF, or conjunctive normal form, is a format for expressing a boolean expression, where variables (which can only take true/false values) are expressed in a \textit{conjunction} of \textit{disjunctions}. For a disjunction to evaluate to true, at least one variable inside must be true. For a conjunction to do the same, \textit{every} variable inside it must be true. Practically, this means CNF contains multiple lists of variables, in each of which at least one must be true in a satisfiable state. Variables can also be negated: this means that a false variable maps to true, and vice versa \cite{CNF}.
+
+MiniSAT takes input of a CNF file in DIMACS format. DIMACS is a file format for representing CNF, where each line contains a list of integers (which correspond to the boolean variables in disjunction), with the lines in the file are in conjunction together. A negative integer encodes the negation of a variable. All lines must also end with an 0, but this is not a problem variable.
+
 \subsection{Generating a CNF file}
 
-MiniSAT takes input of a CNF file in DIMACS format. This means that each line contains a list of integers (which correspond to boolean variables) in a disjunction, while the lines in the file are in conjunction together. A negative integer encodes the negation of a variable. In other words, at least one boolean variable in each line must be true for an arrangement to be satisfying. All lines must also end with an 0, but this is not a problem variable.
+First, we must create a mapping between each package-version and an integer, which will represent the package in the DIMACS file.
 
-This python program, make-cnf.py, takes input of the files defined in Section \ref{ResolverMetadataSS}, and ouputs a CNF file that can be passed to MiniSAT.
+\begin{lstlisting}[language=python]
+count = 1
+for pkg in pkgs:
+    versions = global_db[pkg.decode()].decode().split()
 
-\lstinputlisting[language=python]{final/resolver/make-cnf.py}
+    for version in versions:
+        pkg_to_num[pkg.decode(), version] = str(count)
+        num_to_pkg[count] = (pkg.decode(), version)
+
+        count += 1
+
+    set_provides(pkg.decode(), version)
+\end{lstlisting}
+
+The provides data for the packages were also read and stored in this loop, so that they are finished before the conflicts are encoded (if $p_a$ conflicts with $p_b$, and $p_c$ provides $p_b$, then $p_a$ also conflicts with $p_c$, but there is no way of knowing this before the provides data has been encoded.
+
+At this point, we can also encode the dependency and conflict information for the packages.
+
+\begin{lstlisting}[language=python]
+for pkg in pkgs: # needs second loop so mappings (and provides) are complete!
+    versions = global_db[pkg.decode()].decode().split()
+
+    for version in versions:
+        encode_deps(pkg.decode(), version)
+        encode_conflicts(pkg.decode(), version)
+
+    # encode "only one version of each package"
+    for i in range(0, len(versions)):
+        for j in range(i+1, len(versions)):
+            sat_clauses.append("-" + pkg_to_num[pkg.decode(), versions[i]] +  " "
+                             + "-" + pkg_to_num[pkg.decode(), versions[j]] + " 0")
+\end{lstlisting}
+
+Then, the required clauses for local packages are installed, ensuring the packages that are installed remain installed in some version.
+
+\begin{lstlisting}[language=python]
+local_pkgs_db = dbm.gnu.open(local_pkgs_db_dir, 'c')
+local_pkgs = local_pkgs_db.keys()
+
+full_closure = set()
+
+for pkg in local_pkgs:
+    # encode "each package installed should be installed (but whatever version)"
+    versions = global_db[pkg.decode()].decode().split() # all available versions
+
+    new_clause = ""
+    for version in versions:
+        new_clause += pkg_to_num[pkg.decode(), version] + " "
+
+        full_closure.update(get_closure(pkg.decode(), version)) # get closure of each installed/installable pkg-ver
+    new_clause += "0"
+    
+    sat_clauses.append(new_clause)
+
+full_closure.update(get_closure(new_pkg_name, new_pkg_version))
+\end{lstlisting}
+
+Above, these packages are also added to a set representing a closure. This closure is expanded by the get\_closure method to contain every dependency of the local packages, and all dependencies of those dependencies, and the dependencies of those, etc. This is also done for the package being installed.
+
+With these, the program adds negated clauses for all packages that do not appear in the closure, ensuring they are not installed. This fixes an issue that came up during testing, where the SAT solver would arbitrarily define unnecessary packages as true. While this would result in a valid system state, the user should only be prompted to install the dependencies they need, rather than all of the packages that could coexist on their system.
+
+\begin{lstlisting}[language=python]
+for pkg_num, (pkg, version) in num_to_pkg.items():
+    if (pkg, version) not in full_closure:
+        sat_clauses.append("-" + str(pkg_num) + " 0")
+\end{lstlisting}
+
+The program terminates by printing all of the SAT clauses to standard output, and storing the mappings of DIMACS integers to packages in the closure in a json file.
+
+\begin{lstlisting}[language=python]
+for clause in sat_clauses:
+    print(clause)
+
+num_to_pkg_closure = dict()
+
+for (pkg, ver) in full_closure:
+    num_to_pkg_closure[pkg_to_num[pkg, ver]] = (pkg, ver)
+
+with open(sys.argv[5], 'w') as file:
+    json.dump(num_to_pkg_closure, file)
+\end{lstlisting}
+
+\subsection{Full dependency resolution}
+
+The CNF-generating program defined above needs to be integrated with a MiniSAT to perform the actual resolutions and output a list of package-versions to be installed.
+
+\begin{lstlisting}
+mkdir -p "$tempdir"
+
+sudo python "$installdir/make-cnf.py" "$pkgsdir/" "$itchdir/" "$1" "$2" "$tempdir/mappings.json" > "$tempdir/output" # inputs are pkg and version
+minisat "$tempdir/output" "$tempdir/minisat_out" > /dev/null # don't print sat solver output
+(grep -oE '(^| )[0-9]+' "$tempdir/minisat_out" | tr -d ' ') > "$tempdir/positives"
+
+python "$installdir/get-positives.py" "$tempdir/mappings.json" "$tempdir/positives"
+
+rm -rf "$tempdir"
+\end{lstlisting}
+
+This bash script redirects the output of the make-cnf script into a temporary output file, passes that file to MiniSAT, which generates a list of all variables (representing packages) and whether they are true or false (representing to be installed or not). This file is trimmed to only include the positive, true, variables (packages to be installed), and this is passed to another python script that uses this list, as well as the json file mapping variables to package-versions, to print the complete list of packages that should be installed on the system to provide a minimal, unproblematic state. That script is below:
+
+\begin{lstlisting}[language=python]
+import json
+import sys
+
+print("Suggested system state [name, version]:\n")
+
+with open(sys.argv[1], 'r') as file:
+    num_to_pkg = json.load(file)
+
+with open(sys.argv[2], 'r') as file:
+    for line in file:
+        line = line.rstrip() # remove trailing \n
+
+        if line == "0":
+            break
+
+        print(num_to_pkg[line])
+\end{lstlisting}
+
+Note that all temporary files are placed in a specific directory, which is deleted upon the program's termination, so that unnecessary space is not taken up on the user's system.
+
+\section{The final product}
+
+\subsection{Configuration files} \label{ConfigFileSS}
+
+During development, I hardcoded the file paths of the resources that need to be accessed by the various programs. However, this is not suitable for distribution, as users should be able to modify these variables in one place and have it take effect across all program files, and it is best practice to ensure users do not need to modify source code files.
+
+Therefore, I created two configuration files, one for the installer, and the other for the resolver, holding these values. A typical setup (which is being used on my system) is shown below.
+
+\begin{lstlisting}
+installprefix="/usr"
+tempdir="/tmp/itch/build"
+
+pkgpath="/var/lib/itch/pkgs"
+shareddir="/var/lib/itch/shared"
+
+itchinstallerdir="/usr/lib/itch-installer"
+\end{lstlisting}
+
+\begin{lstlisting}
+installdir="/usr/lib/itch-resolver"
+
+pkgsdir="/var/lib/itch-resolver"
+
+itchdir="/var/lib/itch"
+
+tempdir="/tmp/itch-resolver"
+\end{lstlisting}
+
+These values are loaded by the relevant bash scripts as follows, based on the configuration file needed:
+\begin{lstlisting}
+source "/etc/itch/itch.conf"
+\end{lstlisting}
+\begin{lstlisting}
+source "/etc/itch/itch-resolver.conf"
+\end{lstlisting}
+
+Note that the installprefix is where packages installed by the installer will be located (/usr is the default for Linux From Scratch systems).
+
+Also note that the dependency resolver's configuration file contains an entry for itchdir, the directory where the files of the package installer are contained. This is not required, and if that directory is empty the dependency resolver will simply assume that no packages are currently installed on the system. Otherwise, if it is provided, it allows the dependency resolver to ensure already installed packages do not conflict with the one being installer, and vice-versa.
+
+\subsection{Typical directory tree}
+
+This diagram shows where all of the files associated with both the installer and dependency resolver are to be installed on a typical system. The configuration files allow scope for changing some of these, however this layout follows the Linux Filesystem Hierarchy Standard \cite{FHS} and is therefore recommended.
+
+This clearly shows the separation between the installer and resolver components, since they rely on and use separate directories.
+
+\hspace{5pt} \includegraphics[width=0.5\linewidth]{final/itch-filetree.png}
+
+The package archives, storing installation information for future removal, and providing precompiled archives for reinstallation, are found under /var/lib/itch/pkgs/, and /var/lib/itch/shared/ contains information of the packages currently installed on the system, and the files that are installed (and which package(s) they belong to).
+
+The dependency information is held at /var/lib/itch-resolver/. The depends, conflicts, and provides files are stored in the pkgs/ subdirectory, and the global.gdbm database holds information about what packages, and in what versions, the system has information about.
+
+The temporary directory /tmp/itch/build/ is used as the fakeroot location for redirecting the installation of a package, and /tmp/itch-resolver/ stores the temporary files created while the dependency resolver runs.
+
+The /usr/bin/ directory contains the executable shell scripts for both programs, and /usr/lib/ contains the python scripts they call during their runtime.
+
+Finally, /etc/itch/ contains the configuration files for both programs. They are not in the users .config directory, since itch is designed to work system-wide.
+
+\subsection{Installation}
+
+Installation is generally simple, but has to be done separately for the package installer and dependency resolver components. This is by design, so that users can install only one, but not the other, if desired.
+
+As dependencies, both components require Bash, Python 3, and GDBM. Additionally, the dependency resolver requires MiniSAT. MiniSAT is the only dependency that is not installed in a default Linux From Scratch installation.
+
+This software has only been tested on a Linux From Scratch and an Arch Linux system. There is no reason that it should not also work on other distributions, but it is only intended to be used on Linux From Scratch, and so some subtleties of other systems may unexpectedly interact with the programs' functionality.
+
+\subsubsection{The package installer}
+
+The package installer will come with three files: itch-installer, uninstalldb.py, and updatedb.py.
+
+itch-installer should be copied into /usr/bin/, and the two python scripts into /usr/lib/itch-installer/. This directory should be made if not already present.
+
+The configuration file should be created in /etc/itch/itch.conf, containing the fields specified in Section \ref{ConfigFileSS}.
+
+Assuming the three files are in the current directory, the following script automates this process:
+
+\begin{lstlisting}[language=bash]
+sudo cp itch-installer /usr/bin/
+
+sudo mkdir -p /usr/lib/itch-installer/
+sudo cp uninstalldb.py /usr/lib/itch-installer/
+sudo cp updatedb.py /usr/lib/itch-installer/
+
+sudo echo "installprefix="/usr"
+tempdir="/tmp/itch/build"
+
+pkgpath="/var/lib/itch/pkgs"
+shareddir="/var/lib/itch/shared"
+
+itchinstallerdir="/usr/lib/itch-installer"" > /etc/itch/itch.conf
+\end{lstlisting}
+
+\subsubsection{The dependency resolver}
+
+The dependency resolver will come with three files: itch-resolver, make-cnf.py, and get-positives.py.
+
+itch-resolver should be copied into /usr/bin/, and the two python scripts into /usr/lib/itch-resolver/. This directory should be made if not already present.
+
+The configuration file should be created in /etc/itch/itch-resolver.conf, containing the fields specified in Section \ref{ConfigFileSS}.
+
+Assuming the three files are in the current directory, the following script automates this process:
+
+\begin{lstlisting}[language=bash]
+sudo cp itch-resolver /usr/bin/
+
+sudo mkdir -p /usr/lib/itch-resolver/
+sudo cp make-cnf.py /usr/lib/itch-resolver/
+sudo cp get-positives.py /usr/lib/itch-resolver/
+
+sudo echo "installdir="/usr/lib/itch-resolver"
+
+pkgsdir="/home/shayan/prog/school/epq/debian-pkgs"
+
+itchdir="/var/lib/itch"
+
+tempdir="/tmp/itch-resolver"" > /etc/itch/itch-resolver.conf
+\end{lstlisting}
+
+\subsection{Example usage}
+
+Using Debian repo...
+
+\subsection{Conclusion}
+
+successes and failures of the package manager
+
+what works, what doesn't
+
+scope for improvements
+
+establishing a basic/sophisticated level of success
+
+evaluation against 7 goals
 
 
+\pagebreak
 \appendix
 
-\section{Full program}
+\section{Package installer}
 
-\subsection{Package installer}
+\subsection{itch-installer}
+\lstinputlisting[language=bash]{final/installer/itch-installer}
 
-\subsubsection{main.sh}
-\lstinputlisting[language=bash]{final/installer/main.sh}
-
-\subsubsection{updatedb.py}
+\subsection{updatedb.py}
 \lstinputlisting[language=python]{final/installer/updatedb.py}
 
-\subsubsection{uninstalldb.py}
+\subsection{uninstalldb.py}
 \lstinputlisting[language=python]{final/installer/uninstalldb.py}
 
-\section{Remaining tasks}
+\section{Dependency resolver}
 
-\begin{enumerate}
-    \item Explain minor implementation choices in greater depth, include a directory tree for files used in the project.
-    \item Expand introduction to cover more about dependencies, SAT, CNF, bash scripting.
-    \item Fully finish and test the dependency resolver (i.e. create the wrapper program passing the CNF into miniSAT), ensuring compatibility with the package installer, and document it in greater depth.
-    \item Finalise the programs and prepare them for distribution, including allowing certain predefined variables to be edited in a configuration file.
-    \item Potentially add extra features such as incorporation of previously installed packages.
-\end{enumerate}
+\subsection{itch-resolver}
+\lstinputlisting[language=bash]{final/resolver/itch-resolver}
+
+\subsection{make-cnf.py}
+\lstinputlisting[language=python]{final/resolver/make-cnf.py}
+
+\subsection{get-positives.py}
+\lstinputlisting[language=python]{final/resolver/get-positives.py}
 
 \pagebreak
 \printbibliography

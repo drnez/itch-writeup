@@ -1,0 +1,13 @@
+#!/bin/bash
+
+source "/etc/itch/itch-resolver.conf"
+
+mkdir -p "$tempdir"
+
+sudo python "$installdir/make-cnf.py" "$pkgsdir/" "$itchdir/" "$1" "$2" "$tempdir/mappings.json" > "$tempdir/output" # inputs are pkg and version
+minisat "$tempdir/output" "$tempdir/minisat_out" > /dev/null # don't print sat solver output
+(grep -oE '(^| )[0-9]+' "$tempdir/minisat_out" | tr -d ' ') > "$tempdir/positives"
+
+python "$installdir/get-positives.py" "$tempdir/mappings.json" "$tempdir/positives"
+
+rm -rf "$tempdir"
