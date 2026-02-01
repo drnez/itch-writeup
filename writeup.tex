@@ -7,7 +7,7 @@
 \usepackage{lmodern}
 \usepackage{microtype}
 
-\usepackage{listings, xcolor, graphicx}
+\usepackage{listings, xcolor, graphicx, longtable}
 
 \definecolor{bluekeywords}{rgb}{0,0,1}
 \definecolor{greencomments}{rgb}{0,0.5,0}
@@ -58,7 +58,7 @@
 \renewcommand{\thefootnote}{\fnsymbol{footnote}}
 \setlength{\skip\footins}{1cm}
 
-\title{Itch: A package manager for Linux From Scratch}
+\title{Designing and programming a package installer and dependency resolver tailored to Linux From Scratch systems and users}
 \author{Shayan Nezami}
 \date{\today}
 
@@ -139,20 +139,32 @@ For these reasons, I came to the decision to write a package manager, dedicated 
 
 \section{Design}
 
-\subsection{Non-technical aims}
+\subsection{Non-technical aims} \label{AimsSS}
 
-I will start by defining some fundamental aims of the package manager that will be produced. Many will seem trivial, but it is important to set these out to guide the technical design decisions.
+At the very start of the project, I established that the most basic level of success for the package manager can be determined by whether it can install and remove packages. This is trivial to test - I just need to install a sample of packages, verify that they work correctly, then remove them, and verify that they are no longer present on the system.
+
+However, it is not particularly challenging to create such a package manager, and many already exist. Therefore, the following aims will act as my criteria for establishing a more sophisticated level of success for the project. Almost all of them stem from Aim \ref{TargetLFS}, the need to target Linux From Scratch users and systems, since the problem I am aiming to solve with this project is the lack of a suitable package management solution for Linux From Scratch users, as established in Section \ref{MotivationSS}.
+
+These criteria will also be used to guide the development process, ensuring the artefact created fits my goals as closely as possible.
 
 \begin{enumerate}
-    \item It must be targetted towards LFS systems. While it should ideally be usable on most Linux systems, decisions should be guided by what is needed on an LFS system, and what the LFS user base would prefer. \label{TargetLFS}
+    \item It must be targeted towards LFS systems. While it should ideally be usable on most Linux systems, decisions should be guided by what is needed on an LFS system, and what the LFS user base would prefer. \label{TargetLFS}
     \item The compilation ("building") of software should be left to the user, meaning precompiled binaries should never be distributed. Linux From Scratch is based on the principles of compiling ones own software, and this is a key requirement if a package manager is to be used by LFS users. \label{NoPrecompiled}
     \item Users should be able to patch and modify source code as they desire prior to installation, with the package manager placing no restriction on this. \label{AllowPatching}
     \item The compiled software should be stored as \textit{packages} of some form for future use, so that the user does not have to rebuild software to reinstall it. Note that this does not defy Aim \ref{NoPrecompiled}, since these packages will have been compiled by the user themselves, configured as they desire, rather than externally compiled, then distributed. \label{StorePkgs}
     \item There should be no central server the package manager needs to interact with to function. It should be able to run wholly locally, with no limitations. \label{NoServer}
-    \item It must provide a method for full and clean uninstallation, removing all traces of the software, while not affecting any other programs.
-    \item Dependencies and conflicts must be tracked and managed appropriately, as a key purpose of this project.
-    \item It must not simply be a derivative of an existing package manager - there must be something unique about it, or a non-trivial reason to use it instead of another existing package manager. This has been partially addressed in Section \ref{MotivationSS}, but it should be continuously thought about.
+    \item It must provide a method for full and clean uninstallation, removing all traces of the software, while not affecting any other programs. \label{UninstallPkgs}
+    \item Dependencies and conflicts must be tracked and managed appropriately, as a key purpose of this project. \label{TrackDeps}
+    \item It must not simply be a derivative of an existing package manager - there must be something unique about it, or a non-trivial reason to use it instead of another existing package manager. This has been partially addressed in Section \ref{MotivationSS}, but it should be continuously thought about. \label{BeOriginal}
 \end{enumerate}
+
+Aims \ref{TargetLFS} and \ref{BeOriginal} need to be tested qualitatively, with a personal judgement being used to establish whether they have been successful. This should be apparent when comparing the functionality of this package manager to other, existing ones, especially to do with the design decisions that have been made.
+
+Aims \ref{NoServer} and \ref{TrackDeps} need to be tested by examining the source code I have produced, and ensuring the functionality conforms to their specifications.
+
+The other aims can all be tested objectively, by attempting to use the functions they describe on the package manager for a sample of different packages. They will be classed as successful at the end of the project if those functions work for all packages tested.
+
+These aims are not completely independent of each other, and should not be though of as such. Instead, they build on and complement each other. For example, allowing users to compile packages allows them to patch their source code as well. Aim \ref{BeOriginal}, the need to be original, in some ways derives from Aim \ref{TargetLFS}, since aiming the package manager specifically towards Linux From Scratch users is something that has not been done before in a complete, distributable package manager. Further, most of the aims contribute towards meeting Aim \ref{TargetLFS}, since they are part of what targets this package manager for LFS specifically.
 
 I chose the name \textit{Itch} for this package manager to reflect the importance of Aim \ref{TargetLFS}, since it is being built for Linux From \textit{Scratch}.
 
@@ -482,7 +494,7 @@ The database is stored in /var/lib/itch/shared/pkgs.gdbm, again because this is 
 
 Arch Linux's pacman stores this data in the form of a tarball containing each package as a directory \cite{ArchWikiPacman}, however I chose to use this gdbm database instead since the hashing provided, and not needing to unpack the archive every time, makes it quicker to check whether a package is installed.
 
-Having built this database, I then wrote the uninstallation procedure.
+Having built this database, I then wrote the uninstallation procedure. A python script is used here as it allows the database to be opened just one time, have the operations performed, and then be closed, rather than opening and closing the database each time as would happen had I just used bash. This translates into a very significant (around tenfold in my testing) time saving.
 
 \begin{lstlisting}[language=bash]
     uninstall() {
@@ -567,7 +579,9 @@ Together, these three files contain all the required information to resolve depe
 
 Each line of this file is in the format:
 
-\{conflicting package name\} \{lowest conflicting version\} \{highest conflicting version\}.
+\begin{lstlisting}
+{conflicting package name} {lowest conflicting version} {highest conflicting version}
+\end{lstlisting}
 
 The lowest version can be 0, and highest can be left out if not applicable.
 
@@ -577,13 +591,19 @@ These are the packages and versions that cannot be installed together with this 
 
 This has a very similar format. Each package that is required for the target package has a line in the format:
 
-\{required package name\} \{lowest version required\} \{highest acceptable version\}.
+\begin{lstlisting}
+{required package name} {lowest version required} {highest acceptable version}
+\end{lstlisting}
 
 \subsubsection{provides.itch}
 
 This stores programs that are provided by a certain package, and may be required by other packages. This file has the even simpler format:
 
-\{provided program name\} \{provided program version\}.
+\begin{lstlisting}
+{provided program name} {provided program version}
+\end{lstlisting}
+
+No range is required as each package version provides can only provide another package in one version.
 
 \subsection{Defining the SAT problem}
 
@@ -782,7 +802,11 @@ This diagram shows where all of the files associated with both the installer and
 
 This clearly shows the separation between the installer and resolver components, since they rely on and use separate directories.
 
-\hspace{5pt} \includegraphics[width=0.5\linewidth]{final/itch-filetree.png}
+\begin{figure}[!ht]
+    \centering
+    \includegraphics[width=0.5\linewidth]{final/itch-filetree.png}
+    \caption{The directory tree for \textit{Itch}}
+\end{figure}
 
 The package archives, storing installation information for future removal, and providing precompiled archives for reinstallation, are found under /var/lib/itch/pkgs/, and /var/lib/itch/shared/ contains information of the packages currently installed on the system, and the files that are installed (and which package(s) they belong to).
 
@@ -847,29 +871,161 @@ sudo cp get-positives.py /usr/lib/itch-resolver/
 
 sudo echo "installdir="/usr/lib/itch-resolver"
 
-pkgsdir="/home/shayan/prog/school/epq/debian-pkgs"
+pkgsdir="/var/lib/itch-resolver"
 
 itchdir="/var/lib/itch"
 
 tempdir="/tmp/itch-resolver"" > /etc/itch/itch-resolver.conf
 \end{lstlisting}
 
-\subsection{Example usage}
+\subsection{Example usage} \label{ExampleUsageSS}
 
-Using Debian repo...
+To test the functionality of the package manager, I tested using all of its features with a large sample of packages, ensuring that it works generally and not just in a few particular cases. This section includes screenshots from some of these tests for one particular package, showcasing how \textit{Itch} would work for a user wanting to install a package.
 
-\subsection{Conclusion}
+In this case, the package is a simple text editor called \textit{nano}.
 
-successes and failures of the package manager
+First, the dependency resolver is run with the package name and version, as in Figure \ref{dep-resolver}.
 
-what works, what doesn't
+\begin{figure}[!hb]
+    \centering
+    \includegraphics[width=0.75\linewidth]{final/tests/resolve-test-1.png}
+    \caption{Output of the dependency resolver}
+    \label{dep-resolver}
+\end{figure}
 
-scope for improvements
+This outputs a list of packages (and their versions) that should be installed for a working system state, having resolved the dependencies and any conflicts present, and taken into account the packages currently installed. This satisfies Aim \ref{TrackDeps}. Since all of the packages listed in Figure \ref{dep-resolver} (bar nano itself) are all already installed, the user can move onto installing the software itself. If they were not, the user would have to install those packages first, using the same method they would use to install the target package. However, there is no need to resolve dependencies for those packages too, since that has already been incorporated in the system state output. This is the key benefit of the current system with a package database for a wide range of packages over a system where package dependency data is only given upon installation of that package. See Section \ref{DependencySS} for more details.
 
-establishing a basic/sophisticated level of success
+To do this, they must download the source code of the package, compile it, and move to the directory containing the compiled source code. Only at that point do they invoke itch-installer. This allows them to compile the software themselves, and patch it as needed, meeting Aims \ref{NoPrecompiled} and \ref{AllowPatching}. The output of the installer is shown in Figure \ref{pkg-installer-1}, printing the output of the package's install method, prompting the user to confirm the package name, and to confirm the installation.
 
-evaluation against 7 goals
+Figure \ref{pkg-installer-2} confirms that the \textit{nano} package has been successfully installed and is working as desired.
 
+At some point, the user may wish to uninstall the package. They can do this by issuing a command with the -u flag to itch-installer. The output of this command is shown in Figure \ref{uninstall-output}, listing the files that have been deleted in the process. After this, Figure \ref{nano-removed} shows that the package is no longer available. This shows that Aim \ref{UninstallPkgs} has been met.
+
+Finally, since nano has been installed one time, \textit{Itch} will store it as a custom format package, allowing it to be reinstalled again without needing the original source code this time. This can be done by running itch-installer with the -i command and specifying the name of the package, as shown in Figure \ref{pkged-install}. This meets the requirements of Aim \ref{StorePkgs}. It can again be verified that this works in Figure \ref{pkg-installer-4}, again showing the program installed and working.
+
+\begin{figure}[!ht]
+    \centering
+    \includegraphics[width=1.00\linewidth]{final/tests/install-test-1.png}
+    \includegraphics[width=1.00\linewidth]{final/tests/install-test-2.png}
+    \caption{Output of the package installer}
+    \label{pkg-installer-1}
+\end{figure}
+
+\begin{figure}[!ht]
+    \centering
+    \includegraphics[width=1.00\linewidth]{final/tests/install-test-3.png}
+    \caption{A demonstration of the installed program}
+    \label{pkg-installer-2}
+\end{figure}
+
+\begin{figure}[!ht]
+    \centering
+    \includegraphics[width=1.00\linewidth]{final/tests/uninstall-test-1.png}
+    \caption{Output of the uninstalling a package}
+    \label{uninstall-output}
+\end{figure}
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.75\linewidth]{final/tests/uninstall-test-2.png}
+    \caption{Uninstalled package no longer accessible}
+    \label{nano-removed}
+\end{figure}
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.75\linewidth]{final/tests/pkging-test-1.png}
+    \caption{Installing from a pre-existing package}
+    \label{pkged-install}
+\end{figure}
+
+\begin{figure}[!ht]
+    \centering
+    \includegraphics[width=1.00\linewidth]{final/tests/install-test-3.png}
+    \caption{A demonstration of the re-installed program}
+    \label{pkg-installer-4}
+\end{figure}
+
+\clearpage
+\section{Conclusion}
+
+\subsection{Extent of success}
+
+At the very start of the project, I established that a basic level of success can be established by the package manager being able to install packages. I have clearly succeeded in this, as shown in Section \ref{ExampleUsageSS} - packages can be installed, uninstalled, and have their dependencies resolved. 
+
+However, this project can only be considered truly successful if it adds something on top of other, existing, package managers. In particular, my goal was to target it specifically for Linux From Scratch users. Based on that goal, I defined eight key non-technical aims, in Section \ref{AimsSS}, to guide the project, and serve as a metric to evaluate it upon completion.
+
+Aims \ref{NoPrecompiled}, \ref{AllowPatching}, \ref{StorePkgs}, and \ref{UninstallPkgs} were to be tested by using the package manager with a range of packages, and ensuring that they work in all cases. An example test is shown in Section \ref{ExampleUsageSS}, and tests on the packages \textit{neovim}, \textit{emacs}, \textit{zsh}, \textit{git}, \textit{pulseaudio}, \textit{perl}, and \textit{minisat} were similarly successful. These are two text editors, a shell, a file-tracking utility, an audio driver, a programming language, and a SAT solver (which is actually the only dependency of \textit{Itch} that is unavailable on a base LFS system). This test sample contained a diverse range of software, with different dependencies, conflicts, packages provided, and installation methods supported. Since \textit{Itch} was successful in all of thee cases, it is safe to consider these aims successful.
+
+Aim \ref{TrackDeps}, concerning the ability of the package manager to resolve dependencies, passed an initial check in the test cases above, where it successfully terminated and provided a list of packages that should be installed on a system with the target package. These system states were always successful in the above tests, allowing the target package to run correctly. I ensured that this was not accidental by also passing specific test cases with "hard" dependency situations (with many dependencies and conflicts between packages) using fake packages added to the test database to manually check whether a correct arrangement is output. These tests were all passed, satisfying me that this aim was also successful.
+
+Aim \ref{NoServer} is the only aim that has not been fully successful. As detailed in Section \ref{DependencySS}, in order to create a usable dependency resolver, some form of dependency database is needed. In the Design section, I established this as one that will be held online, and must be downloaded once. Through the development stage, I realised that it is infeasible to create one wholly myself, since there are thousands of available packages, and currently available package managers, such as Pacman \cite{ArchWikiPacman}, have teams of developers working on maintaining their package databases. Therefore, users can solve this in three ways:
+\begin{enumerate}
+    \item Creating their own package database,
+    \item Using another package manager's database,
+    \item Establishing a community \textit{Itch} package database.
+\end{enumerate}
+The first item is generally infeasible for most users, though many very dedicated Linux From Scratch will be able to do this, particularly if they only use a limited range of packages. The third solution is the ideal method - as I had initially aimed to do - however, it is beyond the scope of this project, and would take far too much time for me to do on my own. Therefore, for testing purposes, I used Debian's package database (Debian is a popular Linux distribution) modified to fit the format established in Section \ref{ResolverMetadataSS}. In the long term, my hope is that I, and other users, can establish a large database to end this reliance.
+
+While I do not believe that Aim \ref{NoServer} has been fully unsuccessful, since users can still make their own database of packages, the dependency resolver and package installer have been separated, and the program just needs the database to be downloaded one time (it does not itself interact with any online resource), it would be disingenuous to mark it as successful, as the most usable version of the dependency resolver relies on some form of externally held database.
+
+Aim \ref{TargetLFS}, the need to target Linux From Scratch systems and users, needs to be judged qualitatively, based on the development process I have undertaken, and how the finished product works. I believe that this has been very successful, as I have taken all possible steps to make \textit{Itch} as suitable as possible for such systems and users. The following are just some of these decisions:
+\begin{itemize}
+    \item The package manager does not compile any software for the user,
+    \item The user can freely patch software,
+    \item The user can add any software they desire to the package databases,
+    \item The package manager does not interact with any online resources,
+    \item The package database can be overridden - or even fully created - by the user,
+    \item A fakeroot method is used for installation so that it is simple to understand by users and does not impose any methods of using the system,
+    \item There is no curated repository of software versions that are supported - any software in any version that the user wants can be used,
+    \item Updates are not mandated - the user can uninstall old versions and install new versions whenever they would like to,
+    \item Precompiled binaries are not distributed or even supported,
+    \item The only dependency used that is not provided in a basic Linux From Scratch installation is MiniSAT.
+\end{itemize}
+
+The final aim, Aim \ref{BeOriginal}, is about there being a reason to use \textit{Itch} specifically instead of any other existing package manager. In some ways, this defines whether the project as a whole has been successful, and something of value created. There is no one feature that has been implemented here that does not individually exist elsewhere, however, it is the specific combination that makes \textit{Itch} unique. It is very specifically targeted to Linux From Scratch systems and users, as demonstrated above, and is a unique solution to the problems those users faced, as established in Section \ref{MotivationSS}. Previously, they would need to either rely on another distribution's package manager - removing much of the control that Linux From Scratch affords a user - or install packages manually, if they did not want to create a basic package manager themselves. These are all impractical, particularly for very large packages such as desktop environments. \textit{Itch} is in effect the solution to all of these problems. It handles the repetitive tasks of package removal and dependency resolution, that users find very difficult in larger systems, while leaving all other functions in the hands of the users, affording them as much control as possible. I am therefore happy to consider this aims, and the project as a whole, successful.
+
+\subsection{Scope for improvement}
+
+The following are examples of functionality that could be implemented in the future to improve the package manager.
+\begin{itemize}
+    \item Speeding up the dependency resolver: a problem with the package manager right now is that the dependency resolver runs slowly - taking seconds for a task that should ideally take milliseconds. This could be improved upon in two ways. Firstly, I could spend more time tweaking the resolution algorithm, to try and find optimisations that can speed up the process. Secondly, rewriting the resolver in a compiled language such as C or C++ would significantly improve the speed compared to Python that I am using at the moment.
+    \item Allowing currently installed packages to be marked as such: while ideal, it is unlikely that users will install this package manager before they have already installed a whole array of other packages manually. Currently, they will have to manually modify the database of installed packages do that \textit{Itch} knows these are installed, and avoids conflicts with them when resolving dependencies for new packages. Although this is likely within the capacity of most Linux From Scratch users, it would be nice to add in functionality to add these in natively, without the user having to deal with the databases themselves.
+    \item Introducing functionality to natively allow updating packages could help to make \textit{Itch} easier to use. Updating is currently possible, but it takes two separate commands: one to uninstall the pervious version, and another to install the new version. Implementing a single command to handle both could save users some time.
+    \item A method to "export" a file containing details of all packages installed on one system, and another method to install all the packages from that file, would allow users to distribute their created system between devices. On one hand, this could be seen as putting too much functionality into one program, which is against the Unix philosophy \cite{UnixPhilosophy}, but on the other hand, this is a natural extension of a package manager, since packages installed in effect defines a system's state.
+    \item Including a guided installer that simplifies the installation process for \textit{Itch} could help to eliminate any errors caused by improper installation, however it is very low priority since this should not pose any sort of challenge to a user that has managed to install a whole Linux From Scratch system.
+\end{itemize}
+
+\subsection{Comparison with other package managers}
+
+Here, I will compare \textit{Itch} with two very popular package managers: \textit{Pacman} \cite{ArchWikiPacman}, for the Arch Linux distribution, and \textit{Apt} \cite{AptSource}, for Debian.
+
+\begin{center}
+\begin{longtable}{|p{0.22\linewidth}|p{0.21\linewidth}|p{0.21\linewidth}|p{0.25\linewidth}|}
+    \hline
+    Category & Apt & Pacman & Itch \\
+    \hline
+    Are precompiled packages distributed? & Yes & Yes & No. The user downloads and compiles source code, and the package manager just takes care of installation. Packages, however, are made from code that the user compiles and installs, for subsequent re-installation. \\
+    \hline
+    Installation procedure & Extracts the precompiled archive in place & Extracts the precompiled archive in place & Installs packages in a fake directory first, creating an archive of the files to install, before copying them into place \\
+    \hline
+    Uninstallation procedure & Uses the package archive to remove all files specified & Uses the package archive to remove all files specified & Uses the package archive created during installation to remove all files specified \\
+    \hline
+    Allows patching source code of packages & No & No & Yes \\
+    \hline
+    Allows users to compile their own packages & No & No & Yes \\
+    \hline
+    Package information database & Holds a centrally maintained database & Holds a centrally maintained database & Either a centrally maintained database (to be created) or a user's own database can be used \\
+    \hline
+    Packages available & Packages in a specific version defined by the version of Debian installed. These are typically older, to maintain stability. & The newest possible version of the package that has been packaged for Arch Linux, providing the newest software at the expense of stability. & Whichever packages the user can find dependency installation for. They can choose older, more stable versions, or brand-new, development versions with no restriction. \\
+    \hline
+    Updates & Most updates are undertaken as full-system upgrades, with a new Debian version allowing a newer version of all packages. & Updates are undertaken on a rolling basis, forced whenever new packages are being installed, ensuring the newest software is always installed. & Software can be updated, or not updated, as and when the user wishes. There are no specific requirements, giving the user full control. \\
+    \hline
+    Overall structure & The underlying package installation and dependency resolution is performed by \textit{dpkg}, while \textit{Apt} handles the other maintenance and frontend tasks. & The package management is all handled together by \textit{Pacman}. & \textit{itch-installer} handles the package installation and removal, while \textit{itch-resolver} resolves dependencies. This is a unique method of seperation, allowing users to choose which functionality they feel they would benefit from.\\
+    \hline
+\end{longtable}
+\end{center}
+Overall, \textit{Itch} has been designed to leave as much as possible in the hands of the user. The structures of Apt and Pacman define the Debian and Arch Linux operating systems respectively, by imposing a usage structure upon users, whether it be one of upmost stability or modernity. However, \textit{Itch} intentionally avoids these decisions, leaving it to the user to create their own distribution, as the Linux From Scratch project intended. It is unique in allowing users to maintain full control of their systems, while automating some of the most tiresome tasks that previously made the maintenance of a Linux From Scratch system almost infeasible over the long term.
 
 \pagebreak
 \appendix
